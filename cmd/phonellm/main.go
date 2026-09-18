@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/MarcoPeretti/phonellm/internal/config"
 	"github.com/MarcoPeretti/phonellm/internal/notify"
+	"github.com/MarcoPeretti/phonellm/internal/realtime"
 	"github.com/MarcoPeretti/phonellm/internal/telephony"
 )
 
@@ -59,6 +61,18 @@ func run() error {
 
 	if cfg.EchoTest {
 		log.Warn("starting in ECHO TEST mode: calls are echoed back, the LLM is not used")
+	} else {
+		// Check the credential now rather than when a caller is already on the line.
+		// A rejected key is fatal: refusing to start leaves the Fritz!Box answering
+		// machine to take calls, which beats answering them into a dead session.
+		if err := realtime.Preflight(ctx, cfg.APIKey); err != nil {
+			if errors.Is(err, realtime.ErrBadKey) {
+				return err
+			}
+			log.Warn("could not verify the OpenAI API key at startup; continuing", "error", err)
+		} else {
+			log.Info("OpenAI API key verified")
+		}
 	}
 
 	notifier := notify.New(cfg, log)

@@ -76,6 +76,13 @@ The bridge's three goroutines, all cancelled by a shared context:
 - Notification is best-effort and must never fail a call: the transcript lands on disk
   before any network delivery is attempted.
 
+**Credentials are checked at startup, not mid-call.** `realtime.Preflight` verifies the
+API key before registering, because the Realtime session is otherwise only established
+once a call is already up — so a bad key presents as a caller hearing ringing and then a
+dead line. A rejected key is fatal (refusing to start lets the Fritz!Box answering
+machine take calls instead); an unreachable API is only a warning, since it may well be
+back before anyone rings.
+
 ## Milestone 0: always verify the phone path first
 
 `make echo` runs with no API key and echoes the caller's audio back to themselves. It
