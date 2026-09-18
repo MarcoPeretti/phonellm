@@ -23,9 +23,12 @@ type Config struct {
 	SIPPassword  string
 	SIPRegistrar string
 	BindHost     string
-	BindPort     int
-	RTPPortMin   int
-	RTPPortMax   int
+	// AllowPublicRegistrar permits registering to a registrar outside the private
+	// address ranges, for an external SIP provider.
+	AllowPublicRegistrar bool
+	BindPort             int
+	RTPPortMin           int
+	RTPPortMax           int
 
 	// OpenAI Realtime leg.
 	APIKey       string

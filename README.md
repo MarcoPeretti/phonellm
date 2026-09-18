@@ -40,6 +40,13 @@ Telephony → Telephony Devices → Configure New Device → **Telephone** →
 - The host running `phonellm` must have an address in the Fritz!Box's subnet. Give it a
   static lease.
 
+> **Use the box's IP address, not `fritz.box`.** `.box` is a real public gTLD, so unless
+> your local DNS answers for `fritz.box`, the name resolves to a stranger's host on the
+> internet and your REGISTER — carrying your SIP username — goes to them. The symptom is
+> a bare `Timer_B timed out` that looks like a SIP fault. `phonellm` refuses to start if
+> the registrar resolves outside the private ranges; override with
+> `PHONELLM_ALLOW_PUBLIC_REGISTRAR=true` only for a genuine external SIP provider.
+
 ### 2. Prove the phone path before involving an LLM
 
 This is the gate. Do not skip it.
@@ -84,7 +91,7 @@ with defaults. The ones that matter most:
 | Variable | Default | Notes |
 |---|---|---|
 | `PHONELLM_SIP_USER` / `_PASS` | — | required; from the Fritz!Box UI |
-| `PHONELLM_SIP_REGISTRAR` | `fritz.box` | |
+| `PHONELLM_SIP_REGISTRAR` | `192.168.1.1` | use the IP, not `fritz.box` |
 | `PHONELLM_BIND_HOST` | auto | auto-detected from the route to the registrar |
 | `PHONELLM_ECHO_TEST` | `false` | echo mode; needs no API key |
 | `PHONELLM_RING_DELAY` | `2s` | leaves room for a human to pick up first |

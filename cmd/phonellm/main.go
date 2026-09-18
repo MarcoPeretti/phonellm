@@ -49,6 +49,14 @@ func run() error {
 		log.Info("auto-detected bind address", "host", ip)
 	}
 
+	// Resolve the registrar before doing anything else: a name that resolves off-LAN
+	// is the difference between "it works" and a silent transaction timeout.
+	ips, err := telephony.ResolveRegistrar(cfg.SIPRegistrar, cfg.AllowPublicRegistrar)
+	if err != nil {
+		return err
+	}
+	log.Info("registrar resolved", "host", cfg.SIPRegistrar, "addresses", ips)
+
 	if cfg.EchoTest {
 		log.Warn("starting in ECHO TEST mode: calls are echoed back, the LLM is not used")
 	}

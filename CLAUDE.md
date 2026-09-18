@@ -85,6 +85,10 @@ the model — it isolates the half of the system that is hardest to reason about
 
 ## Gotchas
 
+- **Use the Fritz!Box's IP as the registrar, never `fritz.box`.** `.box` is a public
+  gTLD; when local DNS does not answer for it the name resolves to an internet host and
+  REGISTER leaks the SIP username there, presenting as a bare `Timer_B` timeout.
+  `telephony.ResolveRegistrar` refuses public addresses at startup for this reason.
 - Fritz!Box IP-phone credentials must both be ≥ 8 chars and the password must differ
   substantially from the username, or the box silently refuses to save them.
 - The host must hold an address inside the Fritz!Box's subnet.
