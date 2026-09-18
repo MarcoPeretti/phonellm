@@ -17,9 +17,9 @@ import (
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
 
-	"github.com/marcoperetti/phonellm/internal/bridge"
-	"github.com/marcoperetti/phonellm/internal/config"
-	"github.com/marcoperetti/phonellm/internal/realtime"
+	"github.com/MarcoPeretti/phonellm/internal/bridge"
+	"github.com/MarcoPeretti/phonellm/internal/config"
+	"github.com/MarcoPeretti/phonellm/internal/realtime"
 )
 
 // CallHandler is invoked after a call completes, with whatever transcript was captured.

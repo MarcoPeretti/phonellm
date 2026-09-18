@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/marcoperetti/phonellm/internal/realtime"
+	"github.com/MarcoPeretti/phonellm/internal/realtime"
 )
 
 // G.711 silence: A-law and mu-law encode digital zero differently.

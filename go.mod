@@ -1,4 +1,4 @@
-module github.com/marcoperetti/phonellm
+module github.com/MarcoPeretti/phonellm
 
 go 1.26.6
 

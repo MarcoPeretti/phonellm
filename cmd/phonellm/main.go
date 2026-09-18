@@ -14,9 +14,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/marcoperetti/phonellm/internal/config"
-	"github.com/marcoperetti/phonellm/internal/notify"
-	"github.com/marcoperetti/phonellm/internal/telephony"
+	"github.com/MarcoPeretti/phonellm/internal/config"
+	"github.com/MarcoPeretti/phonellm/internal/notify"
+	"github.com/MarcoPeretti/phonellm/internal/telephony"
 )
 
 func main() {

@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marcoperetti/phonellm/internal/bridge"
-	"github.com/marcoperetti/phonellm/internal/config"
+	"github.com/MarcoPeretti/phonellm/internal/bridge"
+	"github.com/MarcoPeretti/phonellm/internal/config"
 )
 
 type Notifier struct {
