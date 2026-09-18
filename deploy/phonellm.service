@@ -1,0 +1,26 @@
+[Unit]
+Description=phonellm - LLM answering machine on a Fritz!Box line
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phonellm
+Group=phonellm
+ExecStart=/usr/local/bin/phonellm
+EnvironmentFile=/etc/phonellm/phonellm.env
+Restart=always
+RestartSec=5s
+
+StateDirectory=phonellm
+WorkingDirectory=/var/lib/phonellm
+
+# The process needs no privileges: SIP 5060 and the RTP range are unprivileged ports.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/phonellm
+
+[Install]
+WantedBy=multi-user.target
