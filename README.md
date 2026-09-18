@@ -139,6 +139,20 @@ than talking over the caller.
 **Outbound calls** are not implemented. The SIP layer is structured so adding them is a
 new method on the agent rather than a restructure.
 
+## Diagnosing a bad-sounding call
+
+Every call ends with a `call audio quality` line. The transcript will not show audio
+problems -- it records what the model *said*, not what the caller *heard* -- so use this
+line and the WAV, whose right channel is tapped after the pacing buffer and is therefore
+exactly what went out on the wire.
+
+| Symptom | Log signature | Cause and fix |
+|---|---|---|
+| Replies stutter or drop syllables | `starved_pct` above ~2% | Model audio is arriving slower than the 20 ms RTP clock and the pacer is padding with silence. Usually latency to the API. `gpt-realtime-mini` helps. |
+| Replies break off mid-sentence | `self_barge_ins` above 0 | The handset is echoing the assistant back into the line, and server VAD hears it as the caller interrupting. Raise `PHONELLM_VAD_THRESHOLD` (e.g. 0.7) and `PHONELLM_VAD_SILENCE_MS` (e.g. 800). |
+| Long pause, then speech resumes | `dropped_bytes` above 0 | The model outran the wire by more than two seconds and the oldest audio was discarded to keep latency bounded. |
+| Assistant talks over the caller | `barge_ins` at 0 while you did speak | VAD is too insensitive: lower the threshold. |
+
 ## Cost
 
 `gpt-realtime` runs roughly **$0.10–0.30 per call-minute** at current audio token rates.

@@ -90,6 +90,13 @@ dead line. A rejected key is fatal (refusing to start lets the Fritz!Box answeri
 machine take calls instead); an unreachable API is only a warning, since it may well be
 back before anyone rings.
 
+**Audio faults are diagnosed from the `call audio quality` line, not the transcript.**
+The transcript records what the model said, so it looks perfect even when the caller
+heard stutters. `starved_frames` (padding *during* an utterance) means the model could
+not keep up with the RTP clock; `self_barge_ins` means the handset echoed the assistant
+back and server VAD cut it off mid-sentence. Those two have opposite fixes, which is why
+they are counted separately.
+
 ## Milestone 0: always verify the phone path first
 
 `make echo` runs with no API key and echoes the caller's audio back to themselves. It

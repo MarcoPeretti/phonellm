@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/MarcoPeretti/phonellm/internal/realtime"
@@ -70,6 +71,14 @@ type Bridge struct {
 	mu        sync.Mutex
 	turns     []Turn
 	lastHeard time.Time
+
+	// Call-quality counters. The pacing goroutine and the event goroutine both touch
+	// these, so they are atomic rather than guarded by mu.
+	speaking      atomic.Bool // the model is mid-utterance
+	framesSent    atomic.Int64
+	starvedFrames atomic.Int64 // frames padded with silence *while speaking*
+	bargeIns      atomic.Int64
+	selfBargeIns  atomic.Int64 // barge-in fired while the model itself was talking
 }
 
 func New(opts Options) *Bridge {
@@ -126,10 +135,7 @@ func (b *Bridge) Run(ctx context.Context) (Result, error) {
 	default:
 	}
 	res := b.result(start, why)
-	if d := b.out.Dropped(); d > 0 {
-		b.log.Warn("dropped buffered audio during call", "bytes", d,
-			"hint", "model outpaced the RTP clock; check network latency")
-	}
+	b.reportQuality()
 	return res, nil
 }
 
@@ -176,7 +182,13 @@ func (b *Bridge) pumpModelToCaller(ctx context.Context, cancel context.CancelFun
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			b.out.Take(frame, b.opts.Silence)
+			n := b.out.Take(frame, b.opts.Silence)
+			b.framesSent.Add(1)
+			// Padding between utterances is normal; padding *during* one means the
+			// model could not keep up with the wire and the caller hears a gap.
+			if n < len(frame) && b.speaking.Load() {
+				b.starvedFrames.Add(1)
+			}
 			if _, err := b.opts.Writer.Write(frame); err != nil {
 				if ctx.Err() == nil {
 					b.log.Error("writing audio to caller", "error", err)
@@ -228,11 +240,29 @@ func (b *Bridge) onEvent(ctx context.Context, ev realtime.ServerEvent, reason ch
 			b.log.Error("decoding audio delta", "error", err)
 			return
 		}
+		b.speaking.Store(true)
 		b.out.Write(audio)
+
+	case realtime.EvtAudioDone, realtime.EvtResponseDone:
+		b.speaking.Store(false)
 
 	case realtime.EvtSpeechStarted:
 		// Barge-in: drop everything queued and stop generation, so the assistant goes
 		// quiet within one frame rather than talking over the caller.
+		//
+		// A barge-in raised while the model is mid-utterance is the signature of the
+		// handset acoustically echoing the assistant back into the line: server VAD
+		// hears the assistant's own voice as the caller speaking and cuts it off. That
+		// presents as replies that break off mid-sentence, so it is counted separately.
+		selfInterrupt := b.speaking.Load()
+		b.bargeIns.Add(1)
+		if selfInterrupt {
+			b.selfBargeIns.Add(1)
+		}
+		b.log.Info("barge-in", "pending_audio_bytes", b.out.Len(),
+			"while_model_speaking", selfInterrupt)
+
+		b.speaking.Store(false)
 		b.out.Reset()
 		if err := b.opts.Client.CancelResponse(ctx); err != nil {
 			b.log.Debug("cancelling response on barge-in", "error", err)
@@ -251,6 +281,48 @@ func (b *Bridge) onEvent(ctx context.Context, ev realtime.ServerEvent, reason ch
 
 	case realtime.EvtError:
 		b.log.Error("realtime error", "raw", string(ev.Raw))
+	}
+}
+
+// reportQuality summarises how the audio path actually behaved. Choppy or truncated
+// replies are the symptom; these counters say which of the two causes it was.
+func (b *Bridge) reportQuality() {
+	sent := b.framesSent.Load()
+	starved := b.starvedFrames.Load()
+	dropped := b.out.Dropped()
+	barge := b.bargeIns.Load()
+	self := b.selfBargeIns.Load()
+
+	var starvedPct float64
+	if sent > 0 {
+		starvedPct = float64(starved) / float64(sent) * 100
+	}
+
+	b.log.Info("call audio quality",
+		"frames_sent", sent,
+		"starved_frames", starved,
+		"starved_pct", fmt.Sprintf("%.1f%%", starvedPct),
+		"dropped_bytes", dropped,
+		"barge_ins", barge,
+		"self_barge_ins", self,
+	)
+
+	// Roughly one frame in fifty is audible as a stutter.
+	if starvedPct > 2 {
+		b.log.Warn("model audio arrived too slowly to fill the RTP clock",
+			"starved_pct", fmt.Sprintf("%.1f%%", starvedPct),
+			"hint", "replies will have sounded choppy; usually network latency to the API")
+	}
+	if dropped > 0 {
+		b.log.Warn("dropped buffered audio during call", "bytes", dropped,
+			"hint", "model outpaced the RTP clock for over two seconds")
+	}
+	if self > 0 {
+		b.log.Warn("the model interrupted itself",
+			"count", self,
+			"hint", "the handset is echoing the assistant back into the line; replies "+
+				"will have broken off mid-sentence. Raise VADThreshold or "+
+				"VADSilenceMS to make server VAD less trigger-happy")
 	}
 }
 

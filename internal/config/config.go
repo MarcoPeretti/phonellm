@@ -31,9 +31,14 @@ type Config struct {
 	RTPPortMax           int
 
 	// OpenAI Realtime leg.
-	APIKey       string
-	Model        string
-	Voice        string
+	APIKey string
+	Model  string
+	Voice  string
+	// Server-VAD tuning. Raising the threshold or the silence window makes the model
+	// less likely to mistake its own echoed voice for the caller interrupting.
+	VADThreshold float64
+	VADSilenceMS int
+	VADPrefixMS  int
 	Instructions string
 
 	// Call behaviour.
@@ -127,6 +132,13 @@ func env(key, def string) string {
 
 func envInt(key string, def int) int {
 	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return v
+	}
+	return def
+}
+
+func envFloat(key string, def float64) float64 {
+	if v, err := strconv.ParseFloat(os.Getenv(key), 64); err == nil {
 		return v
 	}
 	return def

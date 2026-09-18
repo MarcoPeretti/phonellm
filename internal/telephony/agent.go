@@ -204,6 +204,9 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		Voice:        a.cfg.Voice,
 		Instructions: a.cfg.Instructions,
 		Format:       format,
+		VADThreshold: a.cfg.VADThreshold,
+		VADSilenceMS: a.cfg.VADSilenceMS,
+		VADPrefixMS:  a.cfg.VADPrefixMS,
 		Logger:       log,
 	})
 	if err != nil {

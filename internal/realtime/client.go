@@ -30,7 +30,11 @@ type Options struct {
 	// Format is derived from the codec the SIP leg actually negotiated, so the audio
 	// path stays a byte passthrough whichever of PCMA/PCMU the Fritz!Box picked.
 	Format AudioFormat
-	Logger *slog.Logger
+	// Server-VAD tuning; zero values fall back to the API defaults.
+	VADThreshold float64
+	VADSilenceMS int
+	VADPrefixMS  int
+	Logger       *slog.Logger
 }
 
 type Client struct {
@@ -85,9 +89,9 @@ func (c *Client) configure(ctx context.Context) error {
 				Format: c.opts.Format,
 				TurnDetection: &turnDetection{
 					Type:              "server_vad",
-					Threshold:         0.5,
-					PrefixPaddingMS:   300,
-					SilenceDurationMS: 500,
+					Threshold:         c.opts.VADThreshold,
+					PrefixPaddingMS:   c.opts.VADPrefixMS,
+					SilenceDurationMS: c.opts.VADSilenceMS,
 				},
 				Transcription: &transcription{Model: "whisper-1"},
 			},
@@ -120,7 +124,9 @@ func (c *Client) configure(ctx context.Context) error {
 						"(streaming G.711 into a PCM session would produce static)",
 					c.opts.Format.Type, in, out)
 			}
-			c.log.Info("realtime session configured", "format", c.opts.Format.Type, "model", c.opts.Model)
+			c.log.Info("realtime session configured",
+				"format", c.opts.Format.Type, "model", c.opts.Model,
+				"vad_threshold", c.opts.VADThreshold, "vad_silence_ms", c.opts.VADSilenceMS)
 			return nil
 		}
 	}
