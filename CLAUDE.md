@@ -97,6 +97,12 @@ not keep up with the RTP clock; `self_barge_ins` means the handset echoed the as
 back and server VAD cut it off mid-sentence. Those two have opposite fixes, which is why
 they are counted separately.
 
+**The WAV is tapped before the wire.** `AudioStereoRecordingWav` wraps the reader and
+writer inside this process, and diago's monitor injects silence for write gaps over
+40 ms, so the recording reflects both content and cadence as this process produced them
+-- but says nothing about RTP delivery. A clean recording alongside choppy audio at the
+handset localises the fault downstream; `logRTPStats` covers that half.
+
 ## Milestone 0: always verify the phone path first
 
 `make echo` runs with no API key and echoes the caller's audio back to themselves. It

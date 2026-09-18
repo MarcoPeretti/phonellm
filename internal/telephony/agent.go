@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/emiago/diago"
@@ -158,8 +159,19 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		return fmt.Errorf("answering: %w", err)
 	}
 
+	// Capture inbound RTP stats. The recording is tapped before the wire, so it cannot
+	// show packet loss or jitter between this host and the phone; these counters can.
+	// The inbound path is a proxy for the outbound one, which RTCP alone does not
+	// expose here, but both share the same link.
+	var rtpStats atomic.Pointer[media.RTPReadStats]
+
 	var rprops, wprops diago.MediaProps
-	reader, err := inDialog.AudioReader(diago.WithAudioReaderMediaProps(&rprops))
+	reader, err := inDialog.AudioReader(
+		diago.WithAudioReaderMediaProps(&rprops),
+		diago.WithAudioReaderRTPStats(func(st media.RTPReadStats) {
+			rtpStats.Store(&st)
+		}),
+	)
 	if err != nil {
 		return fmt.Errorf("audio reader: %w", err)
 	}
@@ -228,6 +240,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 
 	res, err := b.Run(ctx)
 	log.Info("call summary", "reason", res.Reason, "turns", len(res.Turns))
+	logRTPStats(log, rtpStats.Load())
 
 	if a.onCall != nil && len(res.Turns) > 0 {
 		// The call is over; do not let a slow notifier hold the SIP dialog open.
@@ -236,6 +249,41 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		a.onCall(notifyCtx, caller, res)
 	}
 	return err
+}
+
+// logRTPStats reports what the network did to the media, which is invisible in the
+// recording: the WAV is tapped inside this process, so a clean recording alongside
+// choppy audio at the handset points here rather than at the bridge.
+func logRTPStats(log *slog.Logger, st *media.RTPReadStats) {
+	if st == nil {
+		return
+	}
+	// Sequence numbers are 16-bit and wrap; over a call of any normal length the span
+	// is what tells us how many packets should have arrived.
+	span := int64(st.LastSequenceNumber) - int64(st.FirstPktSequenceNumber)
+	if span < 0 {
+		span += 1 << 16
+	}
+	expected := span + 1
+	received := int64(st.PacketsCount)
+
+	var lostPct float64
+	if expected > 0 {
+		lostPct = float64(expected-received) / float64(expected) * 100
+	}
+
+	log.Info("inbound RTP",
+		"packets", received,
+		"expected", expected,
+		"lost_pct", fmt.Sprintf("%.2f%%", lostPct),
+		"rtt", st.RTT,
+	)
+	if lostPct >= 1 {
+		log.Warn("packet loss on the media path",
+			"lost_pct", fmt.Sprintf("%.2f%%", lostPct),
+			"hint", "audio will sound choppy at the handset even though the recording is "+
+				"clean; if this host is on Wi-Fi, move it to Ethernet")
+	}
 }
 
 // echo streams the caller's own audio back to them. This is the milestone-0 gate: it

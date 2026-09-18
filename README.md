@@ -152,6 +152,11 @@ exactly what went out on the wire.
 | Replies break off mid-sentence | `self_barge_ins` above 0 | The handset is echoing the assistant back into the line, and server VAD hears it as the caller interrupting. Raise `PHONELLM_VAD_THRESHOLD` (e.g. 0.7) and `PHONELLM_VAD_SILENCE_MS` (e.g. 800). |
 | Long pause, then speech resumes | `dropped_bytes` above 0 | The model outran the wire by more than two seconds and the oldest audio was discarded to keep latency bounded. |
 | Assistant talks over the caller | `barge_ins` at 0 while you did speak | VAD is too insensitive: lower the threshold. |
+| Choppy at the handset but the WAV is clean | `inbound RTP lost_pct` above ~1% | The loss is on the wire, downstream of everything the recording can see. **Run this host on Ethernet, not Wi-Fi** -- RTP tolerates Wi-Fi jitter poorly, and DFS channels (5 GHz 100-140) can stall outright on radar detection. |
+
+The recording is tapped inside the process, before the wire. A clean WAV alongside audio
+that sounded bad is therefore evidence in itself: it moves the fault downstream, to RTP
+delivery or the handset.
 
 ## Cost
 
