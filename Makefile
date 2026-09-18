@@ -20,7 +20,7 @@ echo:
 run:
 	go run ./cmd/phonellm
 
-# Cross-compile for a Raspberry Pi / ARM64 Linux box from macOS.
+# A native `make build` already targets Apple Silicon; these are for Linux hosts.
 build-linux-arm64:
 	GOOS=linux GOARCH=arm64 go build -o bin/$(BINARY)-linux-arm64 ./cmd/phonellm
 

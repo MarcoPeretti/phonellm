@@ -72,6 +72,41 @@ Set `OPENAI_API_KEY`, flip `PHONELLM_ECHO_TEST=false`, and `make run`.
 
 ### 4. Install as a service
 
+<details open>
+<summary><b>macOS (Mac mini)</b></summary>
+
+`make build` already produces a native binary; there is nothing to cross-compile.
+
+```sh
+make build
+sudo install -m 0755 bin/phonellm /usr/local/bin/phonellm
+sudo install -d -m 0750 -o "$USER" /usr/local/var/phonellm /usr/local/var/log
+sudo install -m 0600 -o "$USER" .env /usr/local/var/phonellm/.env
+
+sudo sed "s/CHANGE-ME/$USER/" deploy/com.phonellm.daemon.plist   > /tmp/com.phonellm.daemon.plist
+sudo install -m 0644 -o root -g wheel /tmp/com.phonellm.daemon.plist /Library/LaunchDaemons/
+
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.phonellm.daemon.plist
+tail -f /usr/local/var/log/phonellm.log
+```
+
+A LaunchDaemon rather than a LaunchAgent, so it runs from boot without anyone logging
+in. `WorkingDirectory` in the plist must be the directory holding `.env`, since that is
+where the binary looks for it.
+
+**Stop the Mac mini from sleeping**, or it stops answering the phone:
+
+```sh
+sudo pmset -a sleep 0 disksleep 0 womp 1
+```
+
+To reload after a change: `sudo launchctl kickstart -k system/com.phonellm.daemon`.
+
+</details>
+
+<details>
+<summary><b>Linux (systemd)</b></summary>
+
 ```sh
 make build-linux-arm64                       # or build-linux-amd64
 sudo install -m 0755 bin/phonellm-linux-arm64 /usr/local/bin/phonellm
@@ -81,6 +116,8 @@ sudo install -m 0644 deploy/phonellm.service /etc/systemd/system/
 sudo useradd --system --no-create-home phonellm
 sudo systemctl enable --now phonellm
 ```
+
+</details>
 
 Open the firewall for SIP `5060/udp` and the RTP range (`16384-16484/udp` by default).
 

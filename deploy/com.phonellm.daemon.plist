@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchDaemon for running phonellm on a Mac mini.
+
+  A daemon (not a LaunchAgent) because an answering machine has to run from boot
+  without anyone logging in. Install to /Library/LaunchDaemons and edit UserName
+  and the paths below.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.phonellm.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/phonellm</string>
+    </array>
+
+    <!-- phonellm reads .env from its working directory, so this must be the
+         directory holding .env, recordings/ and transcripts/. -->
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var/phonellm</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Runs as root otherwise; the process needs no privileges. -->
+    <key>UserName</key>
+    <string>CHANGE-ME</string>
+
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/phonellm.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/phonellm.log</string>
+</dict>
+</plist>

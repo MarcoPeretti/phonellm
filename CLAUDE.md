@@ -110,6 +110,15 @@ proves registration, SDP, codec negotiation and RTP in both directions with no L
 involved. When debugging anything audio-related, go back to echo mode before suspecting
 the model — it isolates the half of the system that is hardest to reason about.
 
+## Deployment targets
+
+Both a macOS LaunchDaemon (`deploy/com.phonellm.daemon.plist`) and a systemd unit
+(`deploy/phonellm.service`) are provided; the Mac mini is the intended host. Two things
+are easy to get wrong there: the daemon's `WorkingDirectory` must be the directory
+holding `.env`, because that is where the binary looks for it, and the machine must be
+stopped from sleeping (`sudo pmset -a sleep 0 disksleep 0 womp 1`) or it stops answering
+the phone.
+
 ## Gotchas
 
 - **Use the Fritz!Box's IP as the registrar, never `fritz.box`.** `.box` is a public
