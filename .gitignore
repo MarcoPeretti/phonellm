@@ -4,3 +4,4 @@ bin/
 recordings/
 transcripts/
 .vscode/
+*.txt
