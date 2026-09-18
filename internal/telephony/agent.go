@@ -179,7 +179,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		return fmt.Errorf("answering: %w", err)
 	}
 
-	return a.runAnsweredCall(ctx, log, inDialog, caller)
+	return a.runAnsweredCall(ctx, log, inDialog, caller, a.cfg.Instructions)
 }
 
 // PlaceTestCall dials one number through the Fritz!Box and runs the normal answered-call
@@ -223,7 +223,7 @@ func (a *Agent) PlaceTestCall(ctx context.Context, number string) error {
 
 	start := time.Now()
 	// The dialog's context is cancelled when the remote hangs up, which ends the bridge.
-	err = a.runAnsweredCall(sess.Context(), log, sess, number)
+	err = a.runAnsweredCall(sess.Context(), log, sess, number, a.cfg.OutInstructions)
 	log.Info("outbound call finished", "duration", time.Since(start).Round(time.Second))
 	return err
 }
@@ -232,7 +232,7 @@ func (a *Agent) PlaceTestCall(ctx context.Context, number string) error {
 // reader/writer, optional recording, then either the echo loop or the Realtime bridge,
 // and finally the transcript to the notifier. peer is the caller (inbound) or the dialled
 // number (outbound), used for the recording name and the notification.
-func (a *Agent) runAnsweredCall(ctx context.Context, log *slog.Logger, sess answeredSession, peer string) error {
+func (a *Agent) runAnsweredCall(ctx context.Context, log *slog.Logger, sess answeredSession, peer, instructions string) error {
 	// Capture inbound RTP stats. The recording is tapped before the wire, so it cannot
 	// show packet loss or jitter between this host and the phone; these counters can.
 	// The inbound path is a proxy for the outbound one, which RTCP alone does not
@@ -288,7 +288,7 @@ func (a *Agent) runAnsweredCall(ctx context.Context, log *slog.Logger, sess answ
 		APIKey:       a.cfg.APIKey,
 		Model:        a.cfg.Model,
 		Voice:        a.cfg.Voice,
-		Instructions: a.cfg.Instructions,
+		Instructions: instructions,
 		Format:       format,
 		VADThreshold: a.cfg.VADThreshold,
 		VADSilenceMS: a.cfg.VADSilenceMS,

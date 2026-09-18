@@ -40,6 +40,9 @@ type Config struct {
 	VADSilenceMS int
 	VADPrefixMS  int
 	Instructions string
+	// OutInstructions is the prompt for the outbound test call. It falls back to
+	// Instructions when no outbound-specific prompt is configured.
+	OutInstructions string
 
 	// Call behaviour.
 	RingDelay      time.Duration
@@ -122,6 +125,18 @@ func Load() (*Config, error) {
 		c.Instructions = strings.TrimSpace(string(b))
 	} else if s := os.Getenv("PHONELLM_INSTRUCTIONS"); s != "" {
 		c.Instructions = s
+	}
+
+	// The outbound test call may use its own prompt; absent one, it reuses the inbound.
+	c.OutInstructions = c.Instructions
+	if path := os.Getenv("PHONELLM_OUT_INSTRUCTIONS_FILE"); path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading PHONELLM_OUT_INSTRUCTIONS_FILE: %w", err)
+		}
+		c.OutInstructions = strings.TrimSpace(string(b))
+	} else if s := os.Getenv("PHONELLM_OUT_INSTRUCTIONS"); s != "" {
+		c.OutInstructions = s
 	}
 
 	var missing []string
