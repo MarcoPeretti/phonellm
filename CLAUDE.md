@@ -73,6 +73,14 @@ The bridge's three goroutines, all cancelled by a shared context:
   format came back different from what was requested. This is not defensive padding: there
   is a known failure mode where the session silently reverts to `pcm16`, and streaming
   G.711 into it yields loud static rather than any error. Do not relax this check.
+- **Barge-in cancels only a response that is in flight.** The bridge tracks
+  `response.created` → `response.done` (`responseActive`), which is not the same window
+  as `speaking`: a response exists before its first audio delta and after its last.
+  Cancelling outside it makes the service answer `response_cancel_not_active`, which is
+  harmless but fills the error log — and most barge-ins are just the caller taking their
+  turn with nothing generating. Flushing the output buffer is what actually silences the
+  assistant; the cancel only stops further generation. The remaining race (the response
+  ends between `speech_started` and the cancel landing) is logged at debug.
 - **Codecs are pinned** via `answerCodecs` in `internal/telephony`. Adding G.722 or Opus
   breaks the passthrough. `telephone-event` must stay in the list or RFC 2833 DTMF is lost.
 - **RTP port range is a package-level global** in diago (`media.RTPPortStart/End`), not a
@@ -102,6 +110,14 @@ heard stutters. `starved_frames` (padding *during* an utterance) means the model
 not keep up with the RTP clock; `self_barge_ins` means the handset echoed the assistant
 back and server VAD cut it off mid-sentence. Those two have opposite fixes, which is why
 they are counted separately.
+
+A self barge-in is judged on **what the handset was playing, not what the model was
+generating**: `b.speaking || out.Len() > 0`. The pacing buffer holds seconds of
+already-generated audio the caller has yet to hear, so generation routinely finishes
+while the assistant is still talking, and gating on `speaking` alone files those echoes
+as ordinary barge-ins — hiding the fault the counter exists to surface. The `barge-in`
+log line reports the same thing as `while_assistant_audible`, alongside
+`pending_audio_bytes`.
 
 **The WAV is tapped before the wire.** `AudioStereoRecordingWav` wraps the reader and
 writer inside this process, and diago's monitor injects silence for write gaps over

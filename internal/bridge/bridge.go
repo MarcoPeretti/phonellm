@@ -79,11 +79,15 @@ type Bridge struct {
 
 	// Call-quality counters. The pacing goroutine and the event goroutine both touch
 	// these, so they are atomic rather than guarded by mu.
-	speaking      atomic.Bool // the model is mid-utterance
-	framesSent    atomic.Int64
+	speaking atomic.Bool // the model is mid-utterance
+	// responseActive tracks response.created -> response.done. It is not the same as
+	// speaking: a response exists before its first audio delta and after its last one,
+	// and cancelling outside that window is what the service rejects.
+	responseActive atomic.Bool
+	framesSent     atomic.Int64
 	starvedFrames atomic.Int64 // frames padded with silence *while speaking*
 	bargeIns      atomic.Int64
-	selfBargeIns  atomic.Int64 // barge-in fired while the model itself was talking
+	selfBargeIns  atomic.Int64 // barge-in fired while the assistant was audible at the handset
 }
 
 func New(opts Options) *Bridge {
@@ -246,6 +250,9 @@ func (b *Bridge) handleEvents(ctx context.Context, cancel context.CancelFunc, re
 
 func (b *Bridge) onEvent(ctx context.Context, ev realtime.ServerEvent, reason chan<- string) {
 	switch ev.Type {
+	case realtime.EvtResponseCreated:
+		b.responseActive.Store(true)
+
 	case realtime.EvtAudioDelta:
 		audio, err := realtime.DecodeAudioDelta(ev)
 		if err != nil {
@@ -255,29 +262,46 @@ func (b *Bridge) onEvent(ctx context.Context, ev realtime.ServerEvent, reason ch
 		b.speaking.Store(true)
 		b.out.Write(audio)
 
-	case realtime.EvtAudioDone, realtime.EvtResponseDone:
+	case realtime.EvtAudioDone:
 		b.speaking.Store(false)
+
+	case realtime.EvtResponseDone:
+		b.speaking.Store(false)
+		b.responseActive.Store(false)
 
 	case realtime.EvtSpeechStarted:
 		// Barge-in: drop everything queued and stop generation, so the assistant goes
 		// quiet within one frame rather than talking over the caller.
 		//
-		// A barge-in raised while the model is mid-utterance is the signature of the
-		// handset acoustically echoing the assistant back into the line: server VAD
-		// hears the assistant's own voice as the caller speaking and cuts it off. That
-		// presents as replies that break off mid-sentence, so it is counted separately.
-		selfInterrupt := b.speaking.Load()
+		// A barge-in raised while the assistant was audible at the handset is the
+		// signature of the line acoustically echoing it back: server VAD hears the
+		// assistant's own voice as the caller speaking and cuts it off. That presents as
+		// replies that break off mid-sentence, so it is counted separately.
+		//
+		// What matters is what the handset was playing, not what the model was
+		// generating. The pacing buffer holds seconds of already-generated audio the
+		// caller has yet to hear, so generation routinely finishes while the assistant is
+		// still talking; gating on b.speaking alone files those echoes as ordinary
+		// barge-ins and hides the fault this counter exists to surface.
+		pending := b.out.Len()
+		selfInterrupt := b.speaking.Load() || pending > 0
 		b.bargeIns.Add(1)
 		if selfInterrupt {
 			b.selfBargeIns.Add(1)
 		}
-		b.log.Info("barge-in", "pending_audio_bytes", b.out.Len(),
-			"while_model_speaking", selfInterrupt)
+		b.log.Info("barge-in", "pending_audio_bytes", pending,
+			"while_assistant_audible", selfInterrupt)
 
 		b.speaking.Store(false)
 		b.out.Reset()
-		if err := b.opts.Client.CancelResponse(ctx); err != nil {
-			b.log.Debug("cancelling response on barge-in", "error", err)
+		// Cancel only a response that is actually in flight. Most barge-ins are just the
+		// caller taking their turn after the model finished, and cancelling then draws a
+		// response_cancel_not_active error back. Flushing the buffer above is what
+		// silences the assistant; the cancel only stops further generation.
+		if b.responseActive.CompareAndSwap(true, false) {
+			if err := b.opts.Client.CancelResponse(ctx); err != nil {
+				b.log.Debug("cancelling response on barge-in", "error", err)
+			}
 		}
 		b.touch()
 
@@ -292,6 +316,13 @@ func (b *Bridge) onEvent(ctx context.Context, ev realtime.ServerEvent, reason ch
 		b.addTurn("assistant", ev.Transcript)
 
 	case realtime.EvtError:
+		// A cancel can still lose the race with a response that finishes between
+		// speech_started and the cancel landing. Nothing is wrong with the call, so it
+		// stays out of the error log where real session faults live.
+		if ev.Error != nil && ev.Error.Code == realtime.ErrCancelNotActive {
+			b.log.Debug("late response cancel", "raw", string(ev.Raw))
+			return
+		}
 		b.log.Error("realtime error", "raw", string(ev.Raw))
 	}
 }

@@ -11,17 +11,23 @@ const (
 	evtResponseCancel   = "response.cancel"
 
 	// Server -> client.
-	EvtSessionCreated = "session.created"
-	EvtSessionUpdated = "session.updated"
-	EvtSpeechStarted  = "input_audio_buffer.speech_started"
-	EvtSpeechStopped  = "input_audio_buffer.speech_stopped"
-	EvtAudioDelta     = "response.output_audio.delta"
-	EvtAudioDone      = "response.output_audio.done"
-	EvtOutTranscript  = "response.output_audio_transcript.done"
-	EvtInTranscript   = "conversation.item.input_audio_transcription.completed"
-	EvtResponseDone   = "response.done"
-	EvtError          = "error"
+	EvtSessionCreated  = "session.created"
+	EvtSessionUpdated  = "session.updated"
+	EvtSpeechStarted   = "input_audio_buffer.speech_started"
+	EvtSpeechStopped   = "input_audio_buffer.speech_stopped"
+	EvtResponseCreated = "response.created"
+	EvtAudioDelta      = "response.output_audio.delta"
+	EvtAudioDone       = "response.output_audio.done"
+	EvtOutTranscript   = "response.output_audio_transcript.done"
+	EvtInTranscript    = "conversation.item.input_audio_transcription.completed"
+	EvtResponseDone    = "response.done"
+	EvtError           = "error"
 )
+
+// ErrCancelNotActive is returned when a response.cancel lands after generation has
+// already finished. It is a benign race, not a call fault: the service emits
+// speech_started, the response completes, and the cancel arrives too late.
+const ErrCancelNotActive = "response_cancel_not_active"
 
 // AudioFormat is the GA nested audio format descriptor. The GA API rejects the older
 // flat "input_audio_format"/"output_audio_format" string fields.
