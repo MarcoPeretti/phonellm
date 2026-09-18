@@ -46,6 +46,11 @@ type Config struct {
 	MaxCallTime    time.Duration
 	SilenceTimeout time.Duration
 	EchoTest       bool
+	// OutputBuffer bounds the pacing buffer between the model and the RTP clock. The
+	// Realtime API streams a whole reply's audio faster than realtime, so this must be
+	// large enough to hold a full reply or the oldest bytes are dropped mid-utterance
+	// and the caller hears choppy speech.
+	OutputBuffer time.Duration
 
 	// Artefacts.
 	RecordDir     string
@@ -77,10 +82,18 @@ func Load() (*Config, error) {
 		APIKey:         os.Getenv("OPENAI_API_KEY"),
 		Model:          env("PHONELLM_MODEL", "gpt-realtime"),
 		Voice:          env("PHONELLM_VOICE", "alloy"),
+		// Server-VAD defaults mirror OpenAI's own server_vad defaults. A zero threshold
+		// makes turn detection fire on any line energy, which slices the caller into
+		// spurious turns and floods the pacing buffer; these must be wired, not left at
+		// the zero value.
+		VADThreshold: envFloat("PHONELLM_VAD_THRESHOLD", 0.5),
+		VADSilenceMS: envInt("PHONELLM_VAD_SILENCE_MS", 500),
+		VADPrefixMS:  envInt("PHONELLM_VAD_PREFIX_MS", 300),
 		RingDelay:      envDur("PHONELLM_RING_DELAY", 2*time.Second),
 		MaxCallTime:    envDur("PHONELLM_MAX_CALL_TIME", 5*time.Minute),
 		SilenceTimeout: envDur("PHONELLM_SILENCE_TIMEOUT", 30*time.Second),
 		EchoTest:       envBool("PHONELLM_ECHO_TEST", false),
+		OutputBuffer:   envDur("PHONELLM_OUTPUT_BUFFER", 10*time.Second),
 		RecordDir:      env("PHONELLM_RECORD_DIR", ""),
 		TranscriptDir:  env("PHONELLM_TRANSCRIPT_DIR", ""),
 		SummaryModel:   env("PHONELLM_SUMMARY_MODEL", "gpt-4.1-mini"),

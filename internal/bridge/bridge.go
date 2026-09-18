@@ -36,6 +36,11 @@ type Options struct {
 	FrameSize int           // bytes per packet (160 for G.711 at 20ms)
 	FrameDur  time.Duration // 20ms
 	Silence   byte
+	// BufferDur bounds the output pacing buffer. It must hold a full model reply: the
+	// Realtime API bursts a reply's audio faster than realtime, so a buffer shorter than
+	// the longest reply drops the oldest bytes mid-utterance and sounds choppy. Zero
+	// falls back to a conservative default.
+	BufferDur time.Duration
 	MaxCall   time.Duration
 	// SilenceTimeout ends the call when the caller has said nothing for this long.
 	SilenceTimeout time.Duration
@@ -85,9 +90,16 @@ func New(opts Options) *Bridge {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	// Two seconds of buffered speech is plenty: beyond that the assistant is talking
-	// so far ahead of the wire that dropping is better than growing latency.
-	capacity := opts.FrameSize * int(2*time.Second/opts.FrameDur)
+	// The buffer must hold a whole reply, because the Realtime API delivers a reply's
+	// audio in a burst far faster than the 20 ms RTP clock drains it. Too small and the
+	// overflow policy drops the oldest bytes mid-utterance, which the caller hears as
+	// choppy speech. Barge-in flushes the buffer regardless, so a larger buffer costs
+	// nothing in interruptibility.
+	bufferDur := opts.BufferDur
+	if bufferDur <= 0 {
+		bufferDur = 10 * time.Second
+	}
+	capacity := opts.FrameSize * int(bufferDur/opts.FrameDur)
 	return &Bridge{
 		opts:      opts,
 		log:       opts.Logger,

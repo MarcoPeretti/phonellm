@@ -11,6 +11,7 @@ make test               # go test -race ./...
 make echo               # run in echo mode (see "Milestone 0" below)
 make run                # run against the real Realtime API
 make build-linux-arm64  # cross-compile from macOS for a Pi / ARM64 box
+make build-linux-amd64  # cross-compile for an x86-64 Linux host
 ```
 
 Run a single test: `go test ./internal/bridge/ -run TestBurstIsDrainedInOrderedFrames -v`
@@ -60,9 +61,14 @@ The bridge's three goroutines, all cancelled by a shared context:
 - **The output pacer** (`internal/bridge`) is where call quality lives. The model emits
   bursts; RTP demands one 160-byte frame every 20 ms. Buffer absorbs the burst, ticker
   drains it, encoded silence pads underruns (`0xD5` A-law, `0xFF` mu-law). The buffer is
-  capped at 2 s and drops the **oldest** bytes on overflow to bound latency. Changing the
-  write cadence to "whenever audio arrives" produces choppy garbage that sounds like a
-  network problem.
+  capped at `PHONELLM_OUTPUT_BUFFER` (default 10 s) and drops the **oldest** bytes on
+  overflow. The cap must stay large enough to hold a full reply: the Realtime API bursts a
+  reply's audio far faster than realtime, so a cap shorter than the longest reply drops
+  the oldest bytes *mid-utterance* and the caller hears choppy speech (`dropped_bytes` in
+  the quality line, with `starved_pct` and RTP `lost_pct` both near zero — that
+  combination is the signature). Barge-in flushes the buffer regardless, so a larger cap
+  costs nothing in interruptibility. Changing the write cadence to "whenever audio
+  arrives" produces choppy garbage that sounds like a network problem.
 - **`realtime.Dial` blocks on the `session.updated` echo** and fails the call if the audio
   format came back different from what was requested. This is not defensive padding: there
   is a known failure mode where the session silently reverts to `pcm16`, and streaming
@@ -130,5 +136,7 @@ the phone.
 - The host must hold an address inside the Fritz!Box's subnet.
 - `PHONELLM_MAX_CALL_TIME` is a cost ceiling, not a nicety: Realtime audio runs roughly
   $0.10–0.30 per call-minute, and a stuck call would bill overnight.
+- `PHONELLM_INSTRUCTIONS` sets the system prompt inline; `PHONELLM_INSTRUCTIONS_FILE`
+  points to a file. The file wins if both are set.
 - Outbound calling is deliberately not implemented. Add it as a method on the telephony
   agent, not by restructuring the bridge.

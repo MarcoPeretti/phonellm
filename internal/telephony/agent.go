@@ -233,6 +233,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		FrameSize:      int(codec.SampleTimestamp()),
 		FrameDur:       codec.SampleDur,
 		Silence:        bridge.SilenceByte(codec.PayloadType),
+		BufferDur:      a.cfg.OutputBuffer,
 		MaxCall:        a.cfg.MaxCallTime,
 		SilenceTimeout: a.cfg.SilenceTimeout,
 		Logger:         log,
