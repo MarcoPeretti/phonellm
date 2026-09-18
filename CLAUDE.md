@@ -138,5 +138,9 @@ the phone.
   $0.10–0.30 per call-minute, and a stuck call would bill overnight.
 - `PHONELLM_INSTRUCTIONS` sets the system prompt inline; `PHONELLM_INSTRUCTIONS_FILE`
   points to a file. The file wins if both are set.
-- Outbound calling is deliberately not implemented. Add it as a method on the telephony
-  agent, not by restructuring the bridge.
+- Outbound calling is deliberately not a feature. The one exception is the startup test
+  hook (`OUTBOUND_TEST_CALL` + `OUTBOUND_TEST_NUMBER`), implemented as `Agent.PlaceTestCall`
+  — a method on the agent that reuses `runAnsweredCall` (the shared post-answer pipeline
+  for both inbound and outbound legs). Any real outbound feature belongs there too, not in
+  a bridge restructure. The test call fires only after the first registration
+  (`Agent.Ready`), because the Fritz!Box rejects an INVITE from an unregistered endpoint.

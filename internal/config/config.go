@@ -51,6 +51,10 @@ type Config struct {
 	// large enough to hold a full reply or the oldest bytes are dropped mid-utterance
 	// and the caller hears choppy speech.
 	OutputBuffer time.Duration
+	// OutboundTest, with OutboundNumber, places one outbound call on startup once the
+	// agent has registered. It is a test hook: general outbound calling is not a feature.
+	OutboundTest   bool
+	OutboundNumber string
 
 	// Artefacts.
 	RecordDir     string
@@ -94,6 +98,8 @@ func Load() (*Config, error) {
 		SilenceTimeout: envDur("PHONELLM_SILENCE_TIMEOUT", 30*time.Second),
 		EchoTest:       envBool("PHONELLM_ECHO_TEST", false),
 		OutputBuffer:   envDur("PHONELLM_OUTPUT_BUFFER", 10*time.Second),
+		OutboundTest:   envBool("OUTBOUND_TEST_CALL", false),
+		OutboundNumber: os.Getenv("OUTBOUND_TEST_NUMBER"),
 		RecordDir:      env("PHONELLM_RECORD_DIR", ""),
 		TranscriptDir:  env("PHONELLM_TRANSCRIPT_DIR", ""),
 		SummaryModel:   env("PHONELLM_SUMMARY_MODEL", "gpt-4.1-mini"),

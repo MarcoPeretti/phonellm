@@ -114,6 +114,26 @@ func run() error {
 		"model", cfg.Model,
 	)
 
+	// Outbound test call: dial one number once the box has registered us, so we can prove
+	// the outbound leg without waiting for someone to ring in. Registration must land
+	// first or the Fritz!Box rejects the INVITE.
+	if cfg.OutboundTest {
+		if cfg.OutboundNumber == "" {
+			return fmt.Errorf("OUTBOUND_TEST_CALL is set but OUTBOUND_TEST_NUMBER is empty")
+		}
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-agent.Ready():
+			}
+			log.Info("outbound test call enabled", "number", cfg.OutboundNumber)
+			if err := agent.PlaceTestCall(ctx, cfg.OutboundNumber); err != nil {
+				log.Error("outbound test call failed", "error", err)
+			}
+		}()
+	}
+
 	return agent.Run(ctx)
 }
 

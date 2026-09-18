@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,6 +33,21 @@ type Agent struct {
 	onCall CallHandler
 	ua     *sipgo.UserAgent
 	dg     *diago.Diago
+
+	// registered is closed on the first successful registration, so a startup task can
+	// wait until the Fritz!Box will route an outbound INVITE.
+	registered chan struct{}
+	regOnce    sync.Once
+}
+
+// answeredSession is the media surface an inbound (server) and outbound (client) diago
+// dialog share once the call is up: both embed the same DialogMedia, so the whole
+// post-answer audio path lives in runAnsweredCall and works for either leg.
+type answeredSession interface {
+	AudioReader(...diago.AudioReaderOption) (io.Reader, error)
+	AudioWriter(...diago.AudioWriterOption) (io.Writer, error)
+	AudioStereoRecordingCreate(*os.File) (diago.AudioStereoRecordingWav, error)
+	Context() context.Context
 }
 
 // answerCodecs pins the media to G.711 so the audio path stays a byte passthrough all
@@ -67,8 +83,11 @@ func NewAgent(cfg *config.Config, log *slog.Logger, onCall CallHandler) (*Agent,
 		diago.WithMediaConfig(diago.MediaConfig{Codecs: answerCodecs}),
 	)
 
-	return &Agent{cfg: cfg, log: log, onCall: onCall, ua: ua, dg: dg}, nil
+	return &Agent{cfg: cfg, log: log, onCall: onCall, ua: ua, dg: dg, registered: make(chan struct{})}, nil
 }
+
+// Ready is closed once the agent has registered with the Fritz!Box at least once.
+func (a *Agent) Ready() <-chan struct{} { return a.registered }
 
 // Run serves inbound calls and maintains the registration until ctx is cancelled.
 // Register blocks and re-REGISTERs on the registrar's expiry; if it drops we retry with
@@ -108,6 +127,7 @@ func (a *Agent) registerLoop(ctx context.Context, registrar sip.Uri) {
 			Expiry:   5 * time.Minute,
 			OnRegistered: func() {
 				backoff = time.Second
+				a.regOnce.Do(func() { close(a.registered) })
 				a.log.Info("registered with Fritz!Box",
 					"registrar", a.cfg.SIPRegistrar, "user", a.cfg.SIPUsername)
 			},
@@ -159,6 +179,60 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		return fmt.Errorf("answering: %w", err)
 	}
 
+	return a.runAnsweredCall(ctx, log, inDialog, caller)
+}
+
+// PlaceTestCall dials one number through the Fritz!Box and runs the normal answered-call
+// pipeline against whoever picks up, then hangs up. It is the outbound *test* hook wired
+// to OUTBOUND_TEST_CALL; general outbound calling is not a feature. Call it after Ready()
+// so the box will accept and route the INVITE.
+func (a *Agent) PlaceTestCall(ctx context.Context, number string) error {
+	recipient := sip.Uri{}
+	uri := fmt.Sprintf("sip:%s@%s", number, a.cfg.SIPRegistrar)
+	if err := sip.ParseUri(uri, &recipient); err != nil {
+		return fmt.Errorf("parsing outbound uri %q: %w", uri, err)
+	}
+
+	log := a.log.With("outbound", number)
+	log.Info("placing outbound test call")
+
+	// The Fritz!Box challenges the INVITE for digest auth exactly as it does REGISTER, so
+	// the SIP credentials are supplied here too. Headers must be non-nil per diago.
+	sess, err := a.dg.Invite(ctx, recipient, diago.InviteOptions{
+		Username: a.cfg.SIPUsername,
+		Password: a.cfg.SIPPassword,
+		Headers:  []sip.Header{},
+	})
+	if err != nil {
+		return fmt.Errorf("outbound invite to %s: %w", number, err)
+	}
+	defer sess.Close()
+
+	log = log.With("call_id", sess.Id())
+	log.Info("outbound call answered")
+
+	// Hang up our end when done, on a context that outlives the call's own so the BYE
+	// still goes out even if we are here because the parent context was cancelled.
+	defer func() {
+		hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := sess.Hangup(hctx); err != nil {
+			log.Debug("outbound hangup", "error", err)
+		}
+	}()
+
+	start := time.Now()
+	// The dialog's context is cancelled when the remote hangs up, which ends the bridge.
+	err = a.runAnsweredCall(sess.Context(), log, sess, number)
+	log.Info("outbound call finished", "duration", time.Since(start).Round(time.Second))
+	return err
+}
+
+// runAnsweredCall drives the media path once a call — inbound or outbound — is up: audio
+// reader/writer, optional recording, then either the echo loop or the Realtime bridge,
+// and finally the transcript to the notifier. peer is the caller (inbound) or the dialled
+// number (outbound), used for the recording name and the notification.
+func (a *Agent) runAnsweredCall(ctx context.Context, log *slog.Logger, sess answeredSession, peer string) error {
 	// Capture inbound RTP stats. The recording is tapped before the wire, so it cannot
 	// show packet loss or jitter between this host and the phone; these counters can.
 	// The inbound path is a proxy for the outbound one, which RTCP alone does not
@@ -166,7 +240,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 	var rtpStats atomic.Pointer[media.RTPReadStats]
 
 	var rprops, wprops diago.MediaProps
-	reader, err := inDialog.AudioReader(
+	reader, err := sess.AudioReader(
 		diago.WithAudioReaderMediaProps(&rprops),
 		diago.WithAudioReaderRTPStats(func(st media.RTPReadStats) {
 			rtpStats.Store(&st)
@@ -175,7 +249,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 	if err != nil {
 		return fmt.Errorf("audio reader: %w", err)
 	}
-	writer, err := inDialog.AudioWriter(diago.WithAudioWriterMediaProps(&wprops))
+	writer, err := sess.AudioWriter(diago.WithAudioWriterMediaProps(&wprops))
 	if err != nil {
 		return fmt.Errorf("audio writer: %w", err)
 	}
@@ -191,9 +265,9 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 	// Recording wraps the audio path transparently: it tees a decoded copy into a
 	// stereo WAV while passing the encoded bytes through untouched.
 	if a.cfg.RecordDir != "" {
-		recReader, recWriter, closeRec, path, err := a.startRecording(inDialog, caller)
+		recReader, recWriter, closeRec, path, err := a.startRecording(sess, peer)
 		if err != nil {
-			// A recording problem should not cost the caller their call.
+			// A recording problem should not cost the call.
 			log.Error("recording disabled for this call", "error", err)
 		} else {
 			defer func() {
@@ -247,7 +321,7 @@ func (a *Agent) serveCall(ctx context.Context, log *slog.Logger, inDialog *diago
 		// The call is over; do not let a slow notifier hold the SIP dialog open.
 		notifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
-		a.onCall(notifyCtx, caller, res)
+		a.onCall(notifyCtx, peer, res)
 	}
 	return err
 }
@@ -301,18 +375,18 @@ func (a *Agent) echo(log *slog.Logger, r io.Reader, w io.Writer) error {
 // startRecording tees the call into a stereo WAV (caller left, assistant right) and
 // returns the wrapped audio path. The recording struct holds a mutex and must never be
 // copied, so it stays addressable here and only its reader/writer escape.
-func (a *Agent) startRecording(inDialog *diago.DialogServerSession, caller string) (io.Reader, io.Writer, func() error, string, error) {
+func (a *Agent) startRecording(sess answeredSession, peer string) (io.Reader, io.Writer, func() error, string, error) {
 	if err := os.MkdirAll(a.cfg.RecordDir, 0o750); err != nil {
 		return nil, nil, nil, "", err
 	}
-	name := fmt.Sprintf("%s_%s.wav", time.Now().Format("20060102-150405"), sanitize(caller))
+	name := fmt.Sprintf("%s_%s.wav", time.Now().Format("20060102-150405"), sanitize(peer))
 	path := filepath.Join(a.cfg.RecordDir, name)
 
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
 		return nil, nil, nil, "", err
 	}
-	rec, err := inDialog.AudioStereoRecordingCreate(file)
+	rec, err := sess.AudioStereoRecordingCreate(file)
 	if err != nil {
 		file.Close()
 		return nil, nil, nil, "", err
