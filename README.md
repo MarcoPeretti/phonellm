@@ -53,9 +53,14 @@ This is the gate. Do not skip it.
 
 ```sh
 cp .env.example .env && $EDITOR .env      # SIP credentials only; no API key needed
-set -a && . ./.env && set +a
 make echo
 ```
+
+`phonellm` reads `.env` from its working directory itself — there is no need to source
+it, and **values in the file take precedence over variables already exported in your
+shell**. That is deliberate: the alternative is editing `.env`, seeing no change, and
+hunting a stale value that an earlier `set -a && . ./.env` left behind. Point elsewhere
+with `PHONELLM_ENV_FILE`, or skip the file entirely and export the variables directly.
 
 Call the line. You should hear **yourself**, echoed back. That proves registration, SDP,
 codec negotiation and RTP in both directions. If this does not work, no amount of LLM
@@ -93,7 +98,7 @@ with defaults. The ones that matter most:
 | `PHONELLM_SIP_USER` / `_PASS` | — | required; from the Fritz!Box UI |
 | `PHONELLM_SIP_REGISTRAR` | `192.168.1.1` | use the IP, not `fritz.box` |
 | `PHONELLM_BIND_HOST` | auto | auto-detected from the route to the registrar |
-| `PHONELLM_ECHO_TEST` | `false` | echo mode; needs no API key |
+| `PHONELLM_ECHO_TEST` | `false` | echo mode; needs no API key (or pass `-echo`) |
 | `PHONELLM_RING_DELAY` | `2s` | leaves room for a human to pick up first |
 | `PHONELLM_MAX_CALL_TIME` | `5m` | hard cost ceiling per call |
 | `PHONELLM_SILENCE_TIMEOUT` | `30s` | hangs up on a silent caller |

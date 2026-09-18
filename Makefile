@@ -15,7 +15,7 @@ check: vet test
 
 # Milestone 0: prove SIP registration and RTP in both directions with no LLM.
 echo:
-	PHONELLM_ECHO_TEST=true go run ./cmd/phonellm
+	go run ./cmd/phonellm -echo
 
 run:
 	go run ./cmd/phonellm

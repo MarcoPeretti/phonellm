@@ -15,8 +15,11 @@ make build-linux-arm64  # cross-compile from macOS for a Pi / ARM64 box
 
 Run a single test: `go test ./internal/bridge/ -run TestBurstIsDrainedInOrderedFrames -v`
 
-Config is entirely environment-driven. To run locally: `cp .env.example .env`, edit, then
-`set -a && . ./.env && set +a`.
+Config is environment-driven, and the binary reads `.env` from its working directory
+itself — do not source it first. Precedence is deliberately **flag > `.env` > shell
+environment**: the file beating the shell prevents a stale `set -a && . ./.env` export
+from silently overriding an edited file, and the `-echo` flag exists so echo mode cannot
+be overridden by whatever `.env` happens to say. `PHONELLM_ENV_FILE` points elsewhere.
 
 ## What this is
 
@@ -75,6 +78,10 @@ The bridge's three goroutines, all cancelled by a shared context:
   reboot does not take the service down.
 - Notification is best-effort and must never fail a call: the transcript lands on disk
   before any network delivery is attempted.
+
+**Secrets are logged as fingerprints, never in full** (`config.Fingerprint`). The point
+is that a mismatch between the intended and the effective credential must be diagnosable
+from the log without the secret ever appearing in it.
 
 **Credentials are checked at startup, not mid-call.** `realtime.Preflight` verifies the
 API key before registering, because the Realtime session is otherwise only established
